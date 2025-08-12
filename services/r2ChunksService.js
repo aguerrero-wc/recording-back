@@ -4,8 +4,8 @@ const { PutObjectCommand } = require('@aws-sdk/client-s3');
 const s3 = require('../config/r2');
 
 /**
- * Sube el archivo final a R2 concatenando partes locales en un stream.
- * Nota: Para archivos muy grandes, usar multipart nativo de S3 (CreateMultipartUpload/UploadPart/CompleteMultipartUpload).
+ * Sube el archivo final a R2 concatenando partes locales.
+ * Concatena chunks en archivo temporal, luego sube a R2.
  */
 async function finalizeMultipartUpload({ partsPaths, fileName, mimeType }) {
   const bucket = process.env.R2_BUCKET_NAME;
@@ -13,44 +13,52 @@ async function finalizeMultipartUpload({ partsPaths, fileName, mimeType }) {
     throw new Error('Falta R2_BUCKET_NAME');
   }
 
-  // Crear stream de lectura concatenado
-  const readStreams = partsPaths.map((p) => fs.createReadStream(p));
+  // Crear archivo temporal para concatenar chunks
+  const tempFinalFile = path.join(process.cwd(), 'tmp_uploads', `final_${Date.now()}_${fileName}`);
+  const writeStream = fs.createWriteStream(tempFinalFile);
 
-  // Implementar un simple stream combinando lecturas secuenciales
-  const { PassThrough } = require('stream');
-  const combined = new PassThrough();
-
-  (async () => {
-    try {
-      for (const rs of readStreams) {
-        await new Promise((resolve, reject) => {
-          rs.on('error', reject);
-          rs.on('end', resolve);
-          rs.pipe(combined, { end: false });
-        });
-      }
-      combined.end();
-    } catch (err) {
-      combined.destroy(err);
+  try {
+    // Concatenar todos los chunks secuencialmente
+    for (const partPath of partsPaths) {
+      const data = await fs.promises.readFile(partPath);
+      writeStream.write(data);
     }
-  })();
+    writeStream.end();
 
-  const objectKey = `uploads/${new Date().toISOString().slice(0, 10)}/${Date.now()}_${fileName}`;
+    // Esperar a que termine la escritura
+    await new Promise((resolve, reject) => {
+      writeStream.on('finish', resolve);
+      writeStream.on('error', reject);
+    });
 
-  const result = await s3.send(
-    new PutObjectCommand({
-      Bucket: bucket,
-      Key: objectKey,
-      Body: combined,
-      ContentType: mimeType,
-      CacheControl: 'no-cache',
-    })
-  );
+    // Subir archivo completo a R2
+    const objectKey = `uploads/${new Date().toISOString().slice(0, 10)}/${Date.now()}_${fileName}`;
+    const fileBuffer = await fs.promises.readFile(tempFinalFile);
+    
+    const result = await s3.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: objectKey,
+        Body: fileBuffer,
+        ContentType: mimeType,
+        CacheControl: 'no-cache',
+      })
+    );
 
-  const publicBase = (process.env.R2_PUBLIC_URL || '').replace(/\/$/, '');
-  const url = `${publicBase}/${bucket}/${encodeURIComponent(objectKey)}`;
+    // Limpiar archivo temporal
+    await fs.promises.unlink(tempFinalFile);
 
-  return { bucket, key: objectKey, url, etag: result.ETag };
+    const publicBase = (process.env.R2_PUBLIC_URL || '').replace(/\/$/, '');
+    const url = `${publicBase}/${bucket}/${encodeURIComponent(objectKey)}`;
+
+    return { bucket, key: objectKey, url, etag: result.ETag };
+  } catch (error) {
+    // Limpiar archivo temporal en caso de error
+    try {
+      await fs.promises.unlink(tempFinalFile);
+    } catch (_) {}
+    throw error;
+  }
 }
 
 module.exports = { finalizeMultipartUpload };
