@@ -32,7 +32,7 @@ async function finalizeMultipartUpload({ partsPaths, fileName, mimeType }) {
     });
 
     // Subir archivo completo a R2
-    const objectKey = `uploads/${new Date().toISOString().slice(0, 10)}/${Date.now()}_${fileName}`;
+    const objectKey = `${new Date().toISOString().slice(0, 10)}/${Date.now()}_${fileName}`;
     const fileBuffer = await fs.promises.readFile(tempFinalFile);
     
     const result = await s3.send(
