@@ -6,6 +6,7 @@ require('dotenv').config();
 const databaseRoutes = require('./routes/database');
 const r2Routes = require('./routes/r2');
 const uploadRoutes = require('./routes/upload');
+const recordingsRoutes = require('./routes/recordings');
 
 // Crear la aplicación Express
 const app = express();
@@ -40,6 +41,8 @@ app.use('/api/database', databaseRoutes);
 // Rutas de Cloudflare R2
 app.use('/api/r2', r2Routes);
 app.use('/api', uploadRoutes);
+// Rutas de grabaciones
+app.use('/api/recordings', recordingsRoutes);
 
 // Middleware para manejo de errores 404
 app.use((req, res) => {
@@ -69,6 +72,8 @@ app.listen(PORT, () => {
   console.log(`📝 Subir .txt a R2: POST http://localhost:${PORT}/api/r2/upload-txt`);
   console.log(`🧩 Subida por chunks: POST http://localhost:${PORT}/api/upload-chunk`);
   console.log(`✅ Completar subida: POST http://localhost:${PORT}/api/complete-upload`);
+  console.log(`📀 Listar grabaciones: GET http://localhost:${PORT}/api/recordings`);
+  console.log(`🔍 Ver grabación: GET http://localhost:${PORT}/api/recordings/:id`);
 });
 
 module.exports = app;

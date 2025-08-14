@@ -13,7 +13,20 @@ model User {
   name  String?
 }
 
-// No es necesario definir modelos para probar la conexión.
-// Puedes agregar modelos aquí cuando empieces a modelar tus tablas.
+model Recording {
+  id           Int      @id @default(autoincrement())
+  uploadId     String   @unique
+  fileName     String
+  originalSize Int
+  mimeType     String
+  r2Key        String
+  r2Url        String
+  status       String   @default("uploaded") // uploaded, processing, completed, error
+  duration     Float?   // duración en segundos (opcional)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("recordings")
+}
 
 

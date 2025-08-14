@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
-const { finalizeMultipartUpload, uploadChunkPart } = require('../services/r2ChunksService');
+const { finalizeMultipartUpload } = require('../services/r2ChunksService');
+const { createRecording } = require('../services/recordingsService');
 
 // Almacén temporal en disco para chunks (simple). En producción, preferir Redis/DB o R2 multipart directo.
 const TEMP_UPLOAD_DIR = path.join(process.cwd(), 'tmp_uploads');
@@ -66,6 +67,24 @@ const completeUpload = async (req, res) => {
       mimeType: mimeType || 'application/octet-stream',
     });
 
+    // Guardar registro en la base de datos
+    try {
+      const recording = await createRecording({
+        uploadId,
+        fileName,
+        originalSize: Number(totalSize) || 0,
+        mimeType: mimeType || 'application/octet-stream',
+        r2Key: result.key,
+        r2Url: result.url,
+        status: 'uploaded'
+      });
+      
+      console.log('📀 Grabación guardada en DB:', recording.id);
+    } catch (dbError) {
+      console.error('❌ Error guardando en DB (archivo ya subido a R2):', dbError.message);
+      // No fallar la respuesta, el archivo ya está en R2
+    }
+
     // Limpieza
     try {
       for (const partPath of sortedParts) {
@@ -74,7 +93,11 @@ const completeUpload = async (req, res) => {
       await fs.promises.rmdir(uploadDir);
     } catch (_) {}
 
-    return res.status(200).json({ success: true, ...result });
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Archivo subido y guardado exitosamente',
+      ...result 
+    });
   } catch (error) {
     console.error('Error en completeUpload:', error);
     return res.status(500).json({ success: false, message: 'Error completando subida', error: error.message });
